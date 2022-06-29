@@ -14,7 +14,7 @@ static uint32_t arm64_branch_instruction(uintptr_t from, uintptr_t to) {
 
 
 void exception() {
-        printf("exploit3d exception = what????\n");
+        printf("patch not found!\n");
     	exit(1);
 }
 
@@ -65,6 +65,12 @@ int get_skip_sealing_patch(void *restored_external, size_t len) {
     printf("[*] Skipping sealing system volume xref at 0x%llx\n", (int64_t) ref_skipping_sealing);
 
     addr_t ref_ref_skipping_sealing = cbz_ref64_back(restored_external, ref_skipping_sealing, ref_skipping_sealing);
+
+    //iOS 15
+    if(!ref_ref_skipping_sealing) {
+        ref_skipping_sealing -= 4;
+    	ref_ref_skipping_sealing = cbz_ref64_back(restored_external, ref_skipping_sealing, ref_skipping_sealing);
+    }
 
     if(!ref_ref_skipping_sealing) {
     	exception();
