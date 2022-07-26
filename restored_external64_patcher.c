@@ -1,8 +1,11 @@
+#ifdef __gnu_linux__
+    #define _GNU_SOURCE
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
-
-#include "patchfinder64.c"
 
 #define GET_OFFSET(len, x) (x - (uintptr_t) restored_external)
 
@@ -42,6 +45,69 @@ cbz_ref64_back(const uint8_t *buf, addr_t start, size_t length) {
 
 }
 
+/*function imported from xerub's patchfinder64*/
+
+static addr_t
+xref64(const uint8_t *buf, addr_t start, addr_t end, addr_t what)
+{
+    addr_t i;
+    uint64_t value[32];
+
+    memset(value, 0, sizeof(value));
+
+    end &= ~3;
+    for (i = start & ~3; i < end; i += 4) {
+        uint32_t op = *(uint32_t *)(buf + i);
+        unsigned reg = op & 0x1F;
+        if ((op & 0x9F000000) == 0x90000000) {
+            signed adr = ((op & 0x60000000) >> 18) | ((op & 0xFFFFE0) << 8);
+            //printf("%llx: ADRP X%d, 0x%llx\n", i, reg, ((long long)adr << 1) + (i & ~0xFFF));
+            value[reg] = ((long long)adr << 1) + (i & ~0xFFF);
+            continue;				// XXX should not XREF on its own?
+        /*} else if ((op & 0xFFE0FFE0) == 0xAA0003E0) {
+            unsigned rd = op & 0x1F;
+            unsigned rm = (op >> 16) & 0x1F;
+            //printf("%llx: MOV X%d, X%d\n", i, rd, rm);
+            value[rd] = value[rm];*/
+        } else if ((op & 0xFF000000) == 0x91000000) {
+            unsigned rn = (op >> 5) & 0x1F;
+            unsigned shift = (op >> 22) & 3;
+            unsigned imm = (op >> 10) & 0xFFF;
+            if (shift == 1) {
+                imm <<= 12;
+            } else {
+                //assert(shift == 0);
+                if (shift > 1) continue;
+            }
+            //printf("%llx: ADD X%d, X%d, 0x%x\n", i, reg, rn, imm);
+            value[reg] = value[rn] + imm;
+        } else if ((op & 0xF9C00000) == 0xF9400000) {
+            unsigned rn = (op >> 5) & 0x1F;
+            unsigned imm = ((op >> 10) & 0xFFF) << 3;
+            //printf("%llx: LDR X%d, [X%d, 0x%x]\n", i, reg, rn, imm);
+            if (!imm) continue;			// XXX not counted as true xref
+            value[reg] = value[rn] + imm;	// XXX address, not actual value
+        /*} else if ((op & 0xF9C00000) == 0xF9000000) {
+            unsigned rn = (op >> 5) & 0x1F;
+            unsigned imm = ((op >> 10) & 0xFFF) << 3;
+            //printf("%llx: STR X%d, [X%d, 0x%x]\n", i, reg, rn, imm);
+            if (!imm) continue;			// XXX not counted as true xref
+            value[rn] = value[rn] + imm;	// XXX address, not actual value*/
+        } else if ((op & 0x9F000000) == 0x10000000) {
+            signed adr = ((op & 0x60000000) >> 18) | ((op & 0xFFFFE0) << 8);
+            //printf("%llx: ADR X%d, 0x%llx\n", i, reg, ((long long)adr >> 11) + i);
+            value[reg] = ((long long)adr >> 11) + i;
+        } else if ((op & 0xFF000000) == 0x58000000) {
+            unsigned adr = (op & 0xFFFFE0) >> 3;
+            //printf("%llx: LDR X%d, =0x%llx\n", i, reg, adr + i);
+            value[reg] = adr + i;		// XXX address, not actual value
+        }
+        if (value[reg] == what) {
+            return i;
+        }
+    }
+    return 0;
+}
 
 int get_skip_sealing_patch(void *restored_external, size_t len) {
 
