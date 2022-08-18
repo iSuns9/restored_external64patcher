@@ -11,6 +11,7 @@
 
 typedef unsigned long long addr_t;
 
+
 static uint32_t arm64_branch_instruction(uintptr_t from, uintptr_t to) {
   return from > to ? 0x18000000 - (from - to) / 4 : 0x14000000 + (to - from) / 4;
 }
@@ -158,14 +159,63 @@ int get_skip_sealing_patch(void *restored_external, size_t len) {
 
 }
 
+int get_skip_baseband_update_patch(void *restored_external, size_t len) {
 
-int main(int argc, char* argv[]) { 
+    //printf("len: %zu\n", len);
+
+	printf("getting %s()\n", __FUNCTION__);
+
+	void *skipping_baseband = memmem(restored_external,len,"device does not have a baseband, update skipped", strlen("device does not have a baseband, update skipped"));
+    if (!skipping_baseband) {
+    	exception();
+    }
+
+	printf("[*] device does not have a baseband, update skipped string at 0x%llx\n", (int64_t) GET_OFFSET(len, skipping_baseband));
+
+    addr_t ref_skipping_baseband = xref64(restored_external,0,len,(addr_t)GET_OFFSET(len, skipping_baseband));
+
+    if(!ref_skipping_baseband) {
+    	exception();
+    }
+
+    printf("[*] device does not have a baseband, update skipped xref at 0x%llx\n", (int64_t) ref_skipping_baseband);
+
+    addr_t ref_ref_skipping_baseband = cbz_ref64_back(restored_external, ref_skipping_baseband, ref_skipping_baseband);
+
+
+    if(!ref_ref_skipping_baseband) {
+    	exception();
+    }
+
+    printf("[*] device does not have a baseband, update skipped branch to xref at 0x%llx\n", (int64_t) ref_ref_skipping_baseband);
+
+    printf("[*] Assembling arm64 branch\n");
+
+    uintptr_t ref1 = (uintptr_t)ref_ref_skipping_baseband;
+
+    uintptr_t ref2 = (uintptr_t)ref_skipping_baseband;
+
+    uint32_t our_branch = arm64_branch_instruction(ref1, ref2);
+
+    *(uint32_t *) (restored_external + ref_ref_skipping_baseband) = our_branch;
+
+    return 0;
+
+}
+
+
+int main(int argc, char* argv[]) {
+
+    int skip_bbupdate = 0;
 
 	if (argc < 3) {
 		printf("Incorrect usage!\n");
-		printf("Usage: %s [restored_external] [Patched restored_external]\n", argv[0]);
+		printf("Usage: %s [restored_external] [Patched restored_external] [-b]\n  -b    skip baseband update\n", argv[0]);
 		return -1;
 	}
+	if (argc == 4 && !strcmp(argv[3], "-b")) {
+        skip_bbupdate = 1;
+    }
 
 	char *in = argv[1];
 	char *out = argv[2];
@@ -193,7 +243,12 @@ int main(int argc, char* argv[]) {
     fread(restored_external, 1, len, fp);
     fclose(fp);
 
+    printf("file size: %lu\n", len);
+
     get_skip_sealing_patch(restored_external,len);
+
+    if (skip_bbupdate)
+        get_skip_baseband_update_patch(restored_external,len);
 
 
     printf("[*] Writing out patched file to %s\n", out);
