@@ -112,8 +112,6 @@ xref64(const uint8_t *buf, addr_t start, addr_t end, addr_t what)
 
 int get_skip_sealing_patch(void *restored_external, size_t len) {
 
-    printf("len: %zu\n", len);
-
 	printf("getting %s()\n", __FUNCTION__);
 
 	void *skipping_sealing = memmem(restored_external,len,"Skipping sealing system volume", strlen("Skipping sealing system volume"));
@@ -245,10 +243,10 @@ int main(int argc, char* argv[]) {
 
     printf("file size: %lu\n", len);
 
-    get_skip_sealing_patch(restored_external,len);
-
     if (skip_bbupdate)
         get_skip_baseband_update_patch(restored_external,len);
+    else
+        get_skip_sealing_patch(restored_external,len);
 
 
     printf("[*] Writing out patched file to %s\n", out);
